@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS outbox_deliveries;
+DROP TABLE IF EXISTS webhooks;
+DROP TABLE IF EXISTS events;
