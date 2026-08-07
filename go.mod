@@ -1,4 +1,4 @@
-module wenhookbroker
+module webhookbroker
 
 go 1.26.5
 
