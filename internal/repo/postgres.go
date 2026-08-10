@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 	"webhookbroker/internal/domain"
 
 	"github.com/jackc/pgx/v5"
@@ -82,7 +81,12 @@ func (r *PostgresRepo) IngestEvent(ctx context.Context, eventID, issuer string, 
 // 2. Joing with outbox on webhook id with bigger inremental task id
 // 3. Joing with events to get payload
 // 4. Lock the webhook row with FOR UPDATE OF w + SKIP LOCKED for concurrent workers
-func (r *PostgresRepo) FetchNextTask(ctx context.Context) (*domain.DeliveryTask, error) {
+func (r *PostgresRepo) FetchNextTask(ctx context.Context) (*domain.DeliveryTask, *Acknowledger, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	query := `
 		SELECT 
 			w.id, 
@@ -108,60 +112,22 @@ func (r *PostgresRepo) FetchNextTask(ctx context.Context) (*domain.DeliveryTask,
 
 	task := &domain.DeliveryTask{}
 
-	err := r.db.QueryRow(ctx, query).Scan(
-		&task.WebhookID,
-		&task.HookURL,
-		&task.CurrentRetry,
-		&task.OutboxDeliveryID,
-		&task.Payload,
-	)
+	err = tx.QueryRow(ctx, query).Scan(&task.WebhookID, &task.HookURL, &task.CurrentRetry, &task.OutboxDeliveryID, &task.Payload)
 
 	// Handle the empty query
 	if err != nil {
 		// Track healthy error: ErrNoRows
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, fmt.Errorf("failed to fetch next task: %w", err)
+		return nil, nil, fmt.Errorf("failed to fetch next task: %w", err)
 	}
 
-	return task, nil
-}
-
-func (r *PostgresRepo) MarkDeliverySuccess(ctx context.Context, webhookID int, outboxDeliveryID int64) error {
-	query := `
-		UPDATE webhooks 
-		SET last_processed_outbox_id = $1, 
-		    current_retry = 0, 
-		    next_retry_time = NULL 
-		WHERE id = $2
-	`
-	_, err := r.db.Exec(ctx, query, outboxDeliveryID, webhookID)
-	if err != nil {
-		return fmt.Errorf("failed to mark success: %w", err)
+	ack := &Acknowledger{
+		tx:               tx,
+		webhookID:        task.WebhookID,
+		outboxDeliveryID: task.OutboxDeliveryID,
 	}
-	return nil
-}
 
-func (r *PostgresRepo) MarkDeliveryFailure(ctx context.Context, webhookID int, nextRetryTime time.Time) error {
-	query := `
-		UPDATE webhooks 
-		SET current_retry = current_retry + 1, 
-		    next_retry_time = $1 
-		WHERE id = $2
-	`
-	_, err := r.db.Exec(ctx, query, nextRetryTime, webhookID)
-	if err != nil {
-		return fmt.Errorf("failed to mark failure: %w", err)
-	}
-	return nil
-}
-
-func (r *PostgresRepo) DisableWebhook(ctx context.Context, webhookID int) error {
-	query := `UPDATE webhooks SET is_active = false WHERE id = $1`
-	_, err := r.db.Exec(ctx, query, webhookID)
-	if err != nil {
-		return fmt.Errorf("failed to disable webhook: %w", err)
-	}
-	return nil
+	return task, ack, nil
 }
