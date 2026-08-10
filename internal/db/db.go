@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"log/slog"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -15,22 +16,22 @@ import (
 var migrationsFS embed.FS
 
 func InitDB(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse database DSN: %w", err)
 	}
+
 	config.MaxConns = 25
 	config.MinConns = 5
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, err
 	}
 
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("database ping failed: %w", err)
+		return nil, err
 	}
 
 	if err := runMigrations(dsn); err != nil {
@@ -38,7 +39,8 @@ func InitDB(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	fmt.Println("Database connection pool initialized successfully")
+	slog.Info("Database connection pool initialized successfully")
+
 	return pool, nil
 }
 
@@ -58,6 +60,7 @@ func runMigrations(dsn string) error {
 		return err
 	}
 
-	fmt.Println("Database migrations applied successfully")
+	slog.Info("Database migrations applied successfully")
+
 	return nil
 }

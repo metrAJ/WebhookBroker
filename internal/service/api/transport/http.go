@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"webhookbroker/internal/domain"
 )
@@ -33,8 +34,11 @@ type eventRequest struct {
 func (h *HTTPHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 	var req webhookRequest
 
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		slog.Error("Failed to decode webhook", "error", err)
 		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+
 		return
 	}
 	defer r.Body.Close()
@@ -46,9 +50,12 @@ func (h *HTTPHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 
 	webhook, err := h.service.RegisterWebhook(r.Context(), req.HookURL)
 	if err != nil {
+		slog.Error("Failed to register webhook", "error", err)
 		http.Error(w, "Failed to register webhook", http.StatusInternalServerError)
+
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(webhook)
@@ -59,7 +66,9 @@ func (h *HTTPHandler) ReceiveEvent(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, 520*1024)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		slog.Error("Failed to decode event", "error", err)
 		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+
 		return
 	}
 	defer r.Body.Close()
@@ -68,14 +77,12 @@ func (h *HTTPHandler) ReceiveEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id, issuer, data are required", http.StatusBadRequest)
 		return
 	}
-	if len(req.Data) > 512*1024 {
-		http.Error(w, "Request data is too large, 512 KB MAX", http.StatusBadRequest)
-		return
-	}
 
 	err := h.service.ReceiveEvent(r.Context(), req.EventID, req.Issuer, req.Data)
 	if err != nil {
+		slog.Error("Failed to ingest event", "error", err)
 		http.Error(w, "Failed to ingest event", http.StatusInternalServerError)
+
 		return
 	}
 
