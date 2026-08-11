@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"sync"
 	"time"
 	"webhookbroker/internal/domain"
 )
@@ -122,4 +123,29 @@ func (s *Service) sendHTTP(ctx context.Context, url string, payload []byte) erro
 func (s *Service) calculateBackoff(currentRetry int) time.Duration {
 	multiplier := math.Pow(2, float64(currentRetry))
 	return time.Duration(multiplier) * baseSecWait * time.Second
+}
+
+type Manager struct {
+	service *Service
+}
+
+func NewManager(svc *Service) *Manager {
+	return &Manager{
+		service: svc,
+	}
+}
+
+func (m *Manager) Start(ctx context.Context, workerCount int) {
+	slog.Info("Starting dispatcher pool", slog.Int("workers", workerCount))
+
+	var wg sync.WaitGroup
+	for i := range workerCount {
+		wg.Go(func() {
+			slog.Debug("Worker starting", slog.Int("worker_id", i))
+			m.service.Run(ctx)
+		})
+	}
+
+	wg.Wait()
+	slog.Info("All dispatcher workers shut down fracefully")
 }
