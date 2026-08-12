@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"webhookbroker/internal/domain"
 
+	"github.com/google/uuid"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -93,6 +95,10 @@ type event struct {
 }
 
 func (c event) Validate() error {
+	if _, err := uuid.Parse(c.EventID); err != nil {
+		return fmt.Errorf("invalid event id: must be a valid UUIDv4")
+	}
+
 	if len(c.Data) > 512*1024 {
 		return fmt.Errorf("api.go event.Validate() Data is too large: %s", c.EventID)
 	}
