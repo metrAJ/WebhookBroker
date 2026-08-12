@@ -12,7 +12,8 @@ CREATE TABLE webhooks (
     is_active BOOLEAN NOT NULL DEFAULT true,
     last_processed_outbox_id BIGINT NOT NULL DEFAULT 0,
     current_retry INT NOT NULL DEFAULT 0,
-    next_retry_time TIMESTAMPTZ
+    next_retry_time TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_webhooks_active ON webhooks(next_retry_time)

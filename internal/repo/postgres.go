@@ -129,7 +129,7 @@ func (r *PostgresRepo) MarkFailure(ctx context.Context, webhookID int, nextRetry
 	_, err := r.tx.Exec(ctx, `
 		UPDATE webhooks 
 		SET current_retry = current_retry + 1, 
-		    next_retry_at = $1
+		    next_retry_time = $1
 		WHERE id = $2
 	`, nextRetry, webhookID)
 	if err != nil {
@@ -143,7 +143,7 @@ func (r *PostgresRepo) MarkSuccess(ctx context.Context, webhookID int, outboxID 
 	_, err := r.tx.Exec(ctx, `
 		UPDATE webhooks 
 		SET current_retry = 0, 
-		    next_retry_at = NULL, 
+		    next_retry_time = NULL, 
 		    last_processed_outbox_id = $1
 		WHERE id = $2
 	`, outboxID, webhookID)
