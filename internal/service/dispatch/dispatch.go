@@ -10,33 +10,34 @@ import (
 	"sync"
 	"time"
 	"webhookbroker/internal/domain"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const baseSecWait = 10
-
-type Acknowledger interface {
-	Ack(ctx context.Context) error
-	Nack(ctx context.Context, nextRetryTime time.Time) error
-	Fatal(ctx context.Context) error
-}
+const (
+	baseSecWait = 10
+	MaxRetries  = 9
+)
 
 type Repository interface {
-	FetchNextTask(ctx context.Context) (*domain.DeliveryTask, Acknowledger, error)
+	FetchNextTask(ctx context.Context) (*domain.DeliveryTask, error)
+	MarkSuccess(ctx context.Context, webhookID int, outboxID int64) error
+	MarkFailure(ctx context.Context, webhookID int, nextRetry time.Time) error
+	DisableWebhook(ctx context.Context, webhookID int) error
 }
 
 type Service struct {
-	repo       Repository
+	db         *pgxpool.Pool
+	repoFn     func(tx pgx.Tx) Repository
 	httpClient *http.Client
 }
 
-const MaxRetries = 9
-
-func NewService(r Repository) *Service {
+func NewService(db *pgxpool.Pool, repoFn func(tx pgx.Tx) Repository) *Service {
 	return &Service{
-		repo: r,
-		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
-		},
+		db:         db,
+		repoFn:     repoFn,
+		httpClient: &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
@@ -67,11 +68,21 @@ func (s *Service) Run(ctx context.Context) {
 }
 
 func (s *Service) processTask(ctx context.Context) (bool, error) {
-	task, ack, err := s.repo.FetchNextTask(ctx)
+	// Transaction is controlled by service
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return false, err
 	}
 
+	defer tx.Rollback(ctx)
+
+	// Init repo bount to transaction
+	repo := s.repoFn(tx)
+
+	task, err := repo.FetchNextTask(ctx)
+	if err != nil {
+		return false, err
+	}
 	if task == nil {
 		return false, nil
 	}
@@ -80,22 +91,20 @@ func (s *Service) processTask(ctx context.Context) (bool, error) {
 		slog.Warn("Webhook delivery failed", slog.Int("webhook_id", task.WebhookID), slog.Int("attempt", task.CurrentRetry+1), slog.String("error", httpErr.Error()))
 
 		if task.CurrentRetry >= MaxRetries {
-			slog.Error("Max retries reached. Disabling webhook.", slog.Int("webhook_id", task.WebhookID))
-			ack.Fatal(ctx)
-
-			return true, nil
+			repo.DisableWebhook(ctx, task.WebhookID)
+		} else {
+			nextRetry := time.Now().Add(s.calculateBackoff(task.CurrentRetry))
+			repo.MarkFailure(ctx, task.WebhookID, nextRetry)
 		}
 
-		nextRetryTime := time.Now().Add(s.calculateBackoff(task.CurrentRetry))
-		ack.Nack(ctx, nextRetryTime)
-
-		return true, nil
+		return true, tx.Commit(ctx)
 	}
 
 	slog.Info("Webhook delivered successfully", slog.Int("webhook_id", task.WebhookID))
-	ack.Ack(ctx)
 
-	return true, nil
+	repo.MarkSuccess(ctx, task.WebhookID, task.OutboxDeliveryID)
+
+	return true, tx.Commit(ctx)
 }
 
 func (s *Service) sendHTTP(ctx context.Context, url string, payload []byte) error {
