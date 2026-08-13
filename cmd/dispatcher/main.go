@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"webhookbroker/internal/config"
 	"webhookbroker/internal/db"
 	"webhookbroker/internal/repo"
 	"webhookbroker/internal/service/dispatch"
@@ -13,16 +14,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const (
-	dsn         = "postgres://user:password@localhost:5433/broker?sslmode=disable"
-	workerCount = 20
-)
-
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	dbPool, err := db.InitDB(ctx, dsn)
+	cf := config.Load()
+
+	dbPool, err := db.InitDB(ctx, cf.DB)
 	if err != nil {
 		slog.Error("Database initialization failed", "error", err)
 		os.Exit(1)
@@ -33,13 +31,10 @@ func main() {
 		return repo.NewPostgresRepo(tx)
 	}
 
-	dispatchService := dispatch.NewService(dbPool, repoFactory)
+	dispatchService := dispatch.NewService(cf.Dispatcher, dbPool, repoFactory)
 
 	manager := dispatch.NewManager(dispatchService)
-
-	slog.Info("Starting Dispatcher", slog.Int("workers", workerCount))
-
-	manager.Start(ctx, workerCount)
+	manager.Start(ctx)
 
 	slog.Info("Dispatcher gracefully shut down")
 }

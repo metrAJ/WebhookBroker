@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	"webhookbroker/internal/config"
 	"webhookbroker/internal/db"
 	"webhookbroker/internal/logger"
 	"webhookbroker/internal/repo"
@@ -18,15 +19,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const dsn = "postgres://user:password@localhost:5433/broker?sslmode=disable"
-
 func main() {
 	logger.Setup("debug")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	dbPool, err := db.InitDB(ctx, dsn)
+	cf := config.Load()
+
+	dbPool, err := db.InitDB(ctx, cf.DB)
 	if err != nil {
 		slog.Error("Database initialization failed", "error", err)
 		os.Exit(1)
@@ -44,12 +45,12 @@ func main() {
 	mux.HandleFunc("POST /events", handler.ReceiveEvent)
 
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":" + cf.API.Port,
 		Handler: mux,
 	}
 
 	go func() {
-		slog.Info("Starting API Server on :8080")
+		slog.Info("Starting API Server", slog.String("port", cf.API.Port))
 
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("HTTP server error", slog.String("error", err.Error()))

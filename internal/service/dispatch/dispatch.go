@@ -9,15 +9,11 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"webhookbroker/internal/config"
 	"webhookbroker/internal/domain"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-)
-
-const (
-	baseSecWait = 10
-	MaxRetries  = 9
 )
 
 type Repository interface {
@@ -28,13 +24,15 @@ type Repository interface {
 }
 
 type Service struct {
+	cf         config.DispatcherConfig
 	db         *pgxpool.Pool
 	repoFn     func(tx pgx.Tx) Repository
 	httpClient *http.Client
 }
 
-func NewService(db *pgxpool.Pool, repoFn func(tx pgx.Tx) Repository) *Service {
+func NewService(cf config.DispatcherConfig, db *pgxpool.Pool, repoFn func(tx pgx.Tx) Repository) *Service {
 	return &Service{
+		cf:         cf,
 		db:         db,
 		repoFn:     repoFn,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
@@ -83,6 +81,7 @@ func (s *Service) processTask(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+
 	if task == nil {
 		return false, nil
 	}
@@ -90,7 +89,7 @@ func (s *Service) processTask(ctx context.Context) (bool, error) {
 	if httpErr := s.sendHTTP(ctx, task.HookURL, task.Payload); httpErr != nil {
 		slog.Warn("Webhook delivery failed", slog.Int("webhook_id", task.WebhookID), slog.Int("attempt", task.CurrentRetry+1), slog.String("error", httpErr.Error()))
 
-		if task.CurrentRetry >= MaxRetries {
+		if task.CurrentRetry >= s.cf.MaxRetries {
 			repo.DisableWebhook(ctx, task.WebhookID)
 		} else {
 			nextRetry := time.Now().Add(s.calculateBackoff(task.CurrentRetry))
@@ -131,7 +130,7 @@ func (s *Service) sendHTTP(ctx context.Context, url string, payload []byte) erro
 
 func (s *Service) calculateBackoff(currentRetry int) time.Duration {
 	multiplier := math.Pow(2, float64(currentRetry))
-	return time.Duration(multiplier) * baseSecWait * time.Second
+	return time.Duration(multiplier) * s.cf.BaseSecWait
 }
 
 type Manager struct {
@@ -144,11 +143,11 @@ func NewManager(svc *Service) *Manager {
 	}
 }
 
-func (m *Manager) Start(ctx context.Context, workerCount int) {
-	slog.Info("Starting dispatcher pool", slog.Int("workers", workerCount))
+func (m *Manager) Start(ctx context.Context) {
+	slog.Info("Starting dispatcher pool", slog.Int("workers", m.service.cf.WorkerCount))
 
 	var wg sync.WaitGroup
-	for i := range workerCount {
+	for i := range m.service.cf.WorkerCount {
 		wg.Go(func() {
 			slog.Debug("Worker starting", slog.Int("worker_id", i))
 			m.service.Run(ctx)
