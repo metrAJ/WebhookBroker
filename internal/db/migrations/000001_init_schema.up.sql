@@ -13,6 +13,7 @@ CREATE TABLE webhooks (
     last_processed_outbox_id BIGINT NOT NULL DEFAULT 0,
     current_retry INT NOT NULL DEFAULT 0,
     next_retry_time TIMESTAMPTZ,
+    locked_until TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

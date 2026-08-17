@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
-	"sync"
 	"time"
 	"webhookbroker/internal/config"
 	"webhookbroker/internal/domain"
@@ -17,6 +16,7 @@ import (
 )
 
 type Repository interface {
+	ClaimNextTasks(ctx context.Context, limit int) ([]domain.DeliveryTask, error)
 	FetchNextTask(ctx context.Context) (*domain.DeliveryTask, error)
 	MarkSuccess(ctx context.Context, webhookID int, outboxID int64) error
 	MarkFailure(ctx context.Context, webhookID int, nextRetry time.Time) error
@@ -39,71 +39,47 @@ func NewService(cf config.DispatcherConfig, db *pgxpool.Pool, repoFn func(tx pgx
 	}
 }
 
-func (s *Service) Run(ctx context.Context) {
-	slog.Info("Starting dispatcher worker")
+func (s *Service) processTask(ctx context.Context, task domain.DeliveryTask) {
 
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("Dispatcher shutting down gracefully")
-			return
-		default:
-			// Nonblocking check + not nesting second part because of The Line of Sight Rule
-		}
+	err := s.sendHTTP(ctx, task.HookURL, task.Payload)
 
-		processed, err := s.processTask(ctx)
-		if err != nil {
-			slog.Error("dispatcher processTask() error:", slog.String("error", err.Error()))
-			time.Sleep(5 * time.Second)
+	dbCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
 
-			continue
-		}
-
-		if !processed {
-			time.Sleep(2 * time.Second)
-		}
+	tx, txErr := s.db.Begin(dbCtx)
+	if txErr != nil {
+		slog.Error("Failed to begin transaction for state update", slog.String("error", txErr.Error()))
+		return
 	}
-}
+	defer tx.Rollback(dbCtx)
 
-func (s *Service) processTask(ctx context.Context) (bool, error) {
-	// Transaction is controlled by service
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	defer tx.Rollback(ctx)
-
-	// Init repo bount to transaction
 	repo := s.repoFn(tx)
 
-	task, err := repo.FetchNextTask(ctx)
 	if err != nil {
-		return false, err
-	}
-
-	if task == nil {
-		return false, nil
-	}
-
-	if httpErr := s.sendHTTP(ctx, task.HookURL, task.Payload); httpErr != nil {
-		slog.Warn("Webhook delivery failed", slog.Int("webhook_id", task.WebhookID), slog.Int("attempt", task.CurrentRetry+1), slog.String("error", httpErr.Error()))
+		slog.Warn("Webhook delivery failed", slog.Int("webhook_id", task.WebhookID), slog.Int("attempt", task.CurrentRetry+1), slog.String("error", err.Error()))
 
 		if task.CurrentRetry >= s.cf.MaxRetries {
-			repo.DisableWebhook(ctx, task.WebhookID)
+			if dbErr := repo.DisableWebhook(dbCtx, task.WebhookID); dbErr != nil {
+				slog.Error("Failed to disable webhook", slog.String("error", dbErr.Error()))
+				return
+			}
 		} else {
 			nextRetry := time.Now().Add(s.calculateBackoff(task.CurrentRetry))
-			repo.MarkFailure(ctx, task.WebhookID, nextRetry)
+			if dbErr := repo.MarkFailure(dbCtx, task.WebhookID, nextRetry); dbErr != nil {
+				slog.Error("Failed to mark failure", slog.String("error", dbErr.Error()))
+				return
+			}
 		}
-
-		return true, tx.Commit(ctx)
+	} else {
+		if dbErr := repo.MarkSuccess(dbCtx, task.WebhookID, task.OutboxDeliveryID); dbErr != nil {
+			slog.Error("Failed to mark success", slog.String("error", dbErr.Error()))
+			return
+		}
 	}
 
-	slog.Info("Webhook delivered successfully", slog.Int("webhook_id", task.WebhookID))
-
-	repo.MarkSuccess(ctx, task.WebhookID, task.OutboxDeliveryID)
-
-	return true, tx.Commit(ctx)
+	if commitErr := tx.Commit(dbCtx); commitErr != nil {
+		slog.Error("Failed to commit state update", slog.String("error", commitErr.Error()))
+	}
 }
 
 func (s *Service) sendHTTP(ctx context.Context, url string, payload []byte) error {
@@ -133,27 +109,19 @@ func (s *Service) calculateBackoff(currentRetry int) time.Duration {
 	return time.Duration(multiplier) * s.cf.BaseSecWait
 }
 
-type Manager struct {
-	service *Service
-}
-
-func NewManager(svc *Service) *Manager {
-	return &Manager{
-		service: svc,
+func (s *Service) claimTasks(ctx context.Context, limit int) ([]domain.DeliveryTask, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, err
 	}
-}
+	defer tx.Rollback(ctx)
 
-func (m *Manager) Start(ctx context.Context) {
-	slog.Info("Starting dispatcher pool", slog.Int("workers", m.service.cf.WorkerCount))
+	repo := s.repoFn(tx)
 
-	var wg sync.WaitGroup
-	for i := range m.service.cf.WorkerCount {
-		wg.Go(func() {
-			slog.Debug("Worker starting", slog.Int("worker_id", i))
-			m.service.Run(ctx)
-		})
+	tasks, err := repo.ClaimNextTasks(ctx, limit)
+	if err != nil {
+		return nil, err
 	}
 
-	wg.Wait()
-	slog.Info("All dispatcher workers shut down fracefully")
+	return tasks, tx.Commit(ctx)
 }
