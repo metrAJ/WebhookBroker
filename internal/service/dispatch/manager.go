@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-
 	"webhookbroker/internal/domain"
 )
 
@@ -23,6 +22,7 @@ func (m *Manager) Start(ctx context.Context) {
 	slog.Info("Starting dispatcher pool", slog.Int("workers", m.service.cf.WorkerCount))
 
 	taskChan := make(chan domain.DeliveryTask, m.service.cf.WorkerCount)
+
 	var wg sync.WaitGroup
 
 	for i := range m.service.cf.WorkerCount {
@@ -67,5 +67,4 @@ func (m *Manager) pollingLoop(ctx context.Context, taskChan chan<- domain.Delive
 			}
 		}
 	}
-
 }

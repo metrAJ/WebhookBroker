@@ -16,7 +16,7 @@ import (
 )
 
 type Repository interface {
-	ClaimNextTasks(ctx context.Context, limit int, leaseSec int) ([]domain.DeliveryTask, error)
+	ClaimNextTasks(ctx context.Context, limit, leaseSec int) ([]domain.DeliveryTask, error)
 	FetchNextTask(ctx context.Context) (*domain.DeliveryTask, error)
 	MarkSuccess(ctx context.Context, webhookID int, outboxID int64) error
 	MarkFailure(ctx context.Context, webhookID int, nextRetry time.Time) error
@@ -40,7 +40,6 @@ func NewService(cf config.DispatcherConfig, db *pgxpool.Pool, repoFn func(tx pgx
 }
 
 func (s *Service) processTask(ctx context.Context, task domain.DeliveryTask) {
-
 	err := s.sendHTTP(ctx, task.HookURL, task.Payload)
 
 	dbCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
