@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"time"
-
 	"webhookbroker/internal/config"
 	"webhookbroker/internal/repo"
 	"webhookbroker/internal/service/dispatch"
@@ -17,7 +16,8 @@ import (
 )
 
 func RunScenarioOrder(pool *pgxpool.Pool) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	payloadChan := make(chan string, 3)
 	// Start fake server and record what it receives
@@ -62,12 +62,13 @@ func RunScenarioOrder(pool *pgxpool.Pool) error {
 	go mgr.Start(ctx)
 
 	var receivedPayloads []string
+
 	for i := 0; i < 3; i++ {
 		select {
 		case p := <-payloadChan:
 			receivedPayloads = append(receivedPayloads, p)
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for payloads; manager might be stuck")
+			return fmt.Errorf("timeout waiting for payloads")
 		}
 	}
 

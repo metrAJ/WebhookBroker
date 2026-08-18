@@ -15,7 +15,6 @@ func seedWebhook(ctx context.Context, pool *pgxpool.Pool, hookURL string) (int, 
 		INSERT INTO webhooks (hook_url, is_active, last_processed_outbox_id, current_retry) 
 		VALUES ($1, true, 0, 0) RETURNING id
 	`, hookURL).Scan(&webhookID)
-
 	if err != nil {
 		return 0, fmt.Errorf("factory failed to seed webhook: %w", err)
 	}
@@ -32,7 +31,6 @@ func seedEvent(ctx context.Context, pool *pgxpool.Pool, webhookID int, payload s
 		INSERT INTO events (event_id, issuer, data) 
 		VALUES ($1, 'integration_test', $2) RETURNING index
 	`, eventID, payload).Scan(&eventIndex)
-
 	if err != nil {
 		return fmt.Errorf("factory failed to seed event: %w", err)
 	}
@@ -41,7 +39,6 @@ func seedEvent(ctx context.Context, pool *pgxpool.Pool, webhookID int, payload s
 		INSERT INTO outbox_deliveries (event_index, webhook_id) 
 		VALUES ($1, $2)
 	`, eventIndex, webhookID)
-
 	if err != nil {
 		return fmt.Errorf("factory failed to seed outbox delivery: %w", err)
 	}

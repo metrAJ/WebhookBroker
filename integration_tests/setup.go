@@ -2,7 +2,6 @@ package integration_tests
 
 import (
 	"context"
-	"fmt"
 	"webhookbroker/internal/config"
 	"webhookbroker/internal/db"
 
@@ -33,9 +32,5 @@ func CleanDB(pool *pgxpool.Pool) error {
 		TRUNCATE TABLE outbox_deliveries, events, webhooks RESTART IDENTITY CASCADE;
 	`)
 
-	if err != nil {
-		return fmt.Errorf("failed to clean database tables: %w", err)
-	}
-
-	return nil
+	return err
 }
