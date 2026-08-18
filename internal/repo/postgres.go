@@ -115,7 +115,7 @@ func (r *PostgresRepo) FetchNextTask(ctx context.Context) (*domain.DeliveryTask,
 // 1. Finds active, unlocked webhooks and locks them (SKIP LOCKED).
 // 2. Updates locked_until for the claimed webhooks.
 // 3. LATERAL JOIN to get the payload.
-func (r *PostgresRepo) ClaimNextTasks(ctx context.Context, limit int) ([]domain.DeliveryTask, error) {
+func (r *PostgresRepo) ClaimNextTasks(ctx context.Context, limit int, leaseSec int) ([]domain.DeliveryTask, error) {
 	query := `
 		WITH claim_batch AS (
 			SELECT w.id 
@@ -135,7 +135,7 @@ func (r *PostgresRepo) ClaimNextTasks(ctx context.Context, limit int) ([]domain.
 		),
 		update_locks AS (
 			UPDATE webhooks w
-			SET locked_until = NOW() + INTERVAL '30 seconds'
+			SET locked_until = NOW() + ($2 * INTERVAL '1 second')
 			FROM claim_batch cb
 			WHERE w.id = cb.id
 			RETURNING w.id, w.hook_url, w.current_retry, w.last_processed_outbox_id
@@ -158,18 +158,20 @@ func (r *PostgresRepo) ClaimNextTasks(ctx context.Context, limit int) ([]domain.
 		JOIN events e ON e.index = o.event_index;
 	`
 
-	rows, err := r.tx.Query(ctx, query, limit)
+	rows, err := r.tx.Query(ctx, query, limit, leaseSec)
 	if err != nil {
 		return nil, fmt.Errorf("failed to claim tasks: %w", err)
 	}
 	defer rows.Close()
 
 	var tasks []domain.DeliveryTask
+
 	for rows.Next() {
 		var t domain.DeliveryTask
 		if err := rows.Scan(&t.WebhookID, &t.HookURL, &t.CurrentRetry, &t.OutboxDeliveryID, &t.Payload); err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
 		}
+
 		tasks = append(tasks, t)
 	}
 

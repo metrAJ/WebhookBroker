@@ -23,9 +23,10 @@ type APIConfig struct {
 }
 
 type DispatcherConfig struct {
-	MaxRetries  int
-	BaseSecWait time.Duration
-	WorkerCount int
+	MaxRetries   int
+	BaseSecWait  time.Duration
+	WorkerCount  int
+	TaskLeaseSec int
 }
 
 func getEnv(key, def string) string {
@@ -61,9 +62,10 @@ func Load() Config {
 			Port: getEnv("API_PORT", "8080"),
 		},
 		Dispatcher: DispatcherConfig{
-			MaxRetries:  getEnvAsInt("DISPATCH_MAX_RETRIES", 9),
-			BaseSecWait: time.Duration(getEnvAsInt("DISPATCH_BASE_WAIT_SEC", 10)) * time.Second,
-			WorkerCount: getEnvAsInt("DISPATCH_WORKER_COUNT", 10),
+			MaxRetries:   getEnvAsInt("DISPATCH_MAX_RETRIES", 9),
+			BaseSecWait:  time.Duration(getEnvAsInt("DISPATCH_BASE_WAIT_SEC", 10)) * time.Second,
+			WorkerCount:  getEnvAsInt("DISPATCH_WORKER_COUNT", 10),
+			TaskLeaseSec: getEnvAsInt("DISPATCH_LEASE_SEC", 30),
 		},
 	}
 }
