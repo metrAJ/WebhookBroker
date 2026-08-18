@@ -16,7 +16,7 @@ import (
 )
 
 type Repository interface {
-	ClaimNextTasks(ctx context.Context, limit int) ([]domain.DeliveryTask, error)
+	ClaimNextTasks(ctx context.Context, limit int, leaseSec int) ([]domain.DeliveryTask, error)
 	FetchNextTask(ctx context.Context) (*domain.DeliveryTask, error)
 	MarkSuccess(ctx context.Context, webhookID int, outboxID int64) error
 	MarkFailure(ctx context.Context, webhookID int, nextRetry time.Time) error
@@ -118,7 +118,7 @@ func (s *Service) claimTasks(ctx context.Context, limit int) ([]domain.DeliveryT
 
 	repo := s.repoFn(tx)
 
-	tasks, err := repo.ClaimNextTasks(ctx, limit)
+	tasks, err := repo.ClaimNextTasks(ctx, limit, s.cf.TaskLeaseSec)
 	if err != nil {
 		return nil, err
 	}

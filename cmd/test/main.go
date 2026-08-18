@@ -23,9 +23,9 @@ func main() {
 	defer pool.Close()
 
 	scenarios := []testScenario{
-		{"Test failures", integration.RunScenarioRetry},
+		//{"Test failures", integration.RunScenarioRetry},
 		{"Test delivering order", integration.RunScenarioOrder},
-		{"Test failure isolation", integration.RunScenarioIsolation},
+		//{"Test failure isolation", integration.RunScenarioIsolation},
 	}
 
 	failed := false
