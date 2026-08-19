@@ -5,8 +5,11 @@ import (
 	"embed"
 	"fmt"
 	"log/slog"
+	"webhookbroker/internal/config"
 
 	"github.com/golang-migrate/migrate/v4"
+
+	// Register the postgres database driver for golang-migrate
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,14 +18,14 @@ import (
 //go:embed migrations
 var migrationsFS embed.FS
 
-func InitDB(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	config, err := pgxpool.ParseConfig(dsn)
+func InitDB(ctx context.Context, cf config.DBConfig) (*pgxpool.Pool, error) {
+	config, err := pgxpool.ParseConfig(cf.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse database DSN: %w", err)
 	}
 
-	config.MaxConns = 25
-	config.MinConns = 5
+	config.MaxConns = int32(cf.MaxConns)
+	config.MinConns = int32(cf.MinConns)
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
@@ -34,7 +37,7 @@ func InitDB(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 
-	if err := runMigrations(dsn); err != nil {
+	if err := runMigrations(cf.DSN); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}

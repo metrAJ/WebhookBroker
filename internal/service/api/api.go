@@ -3,8 +3,14 @@ package api
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"webhookbroker/internal/domain"
+
+	"github.com/google/uuid"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Repository interface {
@@ -13,11 +19,15 @@ type Repository interface {
 }
 
 type Service struct {
-	repo Repository
+	db     *pgxpool.Pool
+	repoFn func(tx pgx.Tx) Repository
 }
 
-func NewService(r Repository) *Service {
-	return &Service{repo: r}
+func NewService(db *pgxpool.Pool, repoFn func(tx pgx.Tx) Repository) *Service {
+	return &Service{
+		db:     db,
+		repoFn: repoFn,
+	}
 }
 
 func (s *Service) RegisterWebhook(ctx context.Context, hookURL string) (*domain.Webhook, error) {
@@ -26,7 +36,22 @@ func (s *Service) RegisterWebhook(ctx context.Context, hookURL string) (*domain.
 		return nil, err
 	}
 
-	return s.repo.CreateWebhook(ctx, hook.HookURL)
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	repo := s.repoFn(tx)
+
+	webhook, err := repo.CreateWebhook(ctx, hook.HookURL)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Info("Successfully registered new webhook", slog.Int("webhook_id", webhook.ID))
+
+	return webhook, tx.Commit(ctx)
 }
 
 func (s *Service) ReceiveEvent(ctx context.Context, eventID, issuer string, payload []byte) error {
@@ -34,7 +59,20 @@ func (s *Service) ReceiveEvent(ctx context.Context, eventID, issuer string, payl
 	if err := event.Validate(); err != nil {
 		return err
 	}
-	return s.repo.IngestEvent(ctx, eventID, issuer, payload)
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	repo := s.repoFn(tx)
+
+	if err := repo.IngestEvent(ctx, eventID, issuer, payload); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 type webhook struct {
@@ -57,6 +95,10 @@ type event struct {
 }
 
 func (c event) Validate() error {
+	if _, err := uuid.Parse(c.EventID); err != nil {
+		return fmt.Errorf("invalid event id: must be a valid UUIDv4")
+	}
+
 	if len(c.Data) > 512*1024 {
 		return fmt.Errorf("api.go event.Validate() Data is too large: %s", c.EventID)
 	}
