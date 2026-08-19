@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
-
 	integration "webhookbroker/integration_tests"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,6 +15,7 @@ type testScenario struct {
 }
 
 func main() {
+	ctx := context.Background()
 	scenarios := []testScenario{
 		{"Test failures", integration.RunScenarioRetry},
 		{"Test delivering order", integration.RunScenarioOrder},
@@ -28,7 +29,7 @@ func main() {
 	for _, scenario := range scenarios {
 		slog.Info("Test", "scenario", scenario.Name)
 
-		pool, err := integration.SetupTestDB()
+		pool, err := integration.SetupTestDB(ctx)
 		if err != nil {
 			slog.Error("Failed to connect to test database", "error", err)
 			os.Exit(1)

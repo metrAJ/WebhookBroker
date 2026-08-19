@@ -2,17 +2,21 @@ package integration_tests
 
 import (
 	"context"
+	"os"
 	"webhookbroker/internal/config"
 	"webhookbroker/internal/db"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func SetupTestDB() (*pgxpool.Pool, error) {
-	ctx := context.Background()
+func SetupTestDB(ctx context.Context) (*pgxpool.Pool, error) {
+	dsn := "postgres://testuser:testpassword@localhost:5434/testdb?sslmode=disable"
+	if envDsn := os.Getenv("DB_URL"); envDsn != "" {
+		dsn = envDsn
+	}
 
 	dbcf := config.DBConfig{
-		DSN:      "postgres://testuser:testpassword@localhost:5434/testdb?sslmode=disable",
+		DSN:      dsn,
 		MaxConns: 10,
 		MinConns: 5,
 	}
