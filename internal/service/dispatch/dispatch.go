@@ -52,7 +52,7 @@ func (s *Service) processTask(ctx context.Context, task domain.DeliveryTask) {
 		slog.Error("Failed to begin transaction for state update", slog.String("error", txErr.Error()))
 		return
 	}
-	defer tx.Rollback(dbCtx)
+	defer tx.Rollback(ctx)
 
 	repo := s.repoFn(tx)
 

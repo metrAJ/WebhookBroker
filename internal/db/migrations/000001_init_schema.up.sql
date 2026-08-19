@@ -17,7 +17,8 @@ CREATE TABLE webhooks (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_webhooks_active ON webhooks(next_retry_time)
+CREATE INDEX idx_webhooks_active_polling 
+ON webhooks(next_retry_time, locked_until) 
 WHERE is_active = true;
 
 CREATE TABLE outbox_deliveries (
@@ -26,4 +27,5 @@ CREATE TABLE outbox_deliveries (
     webhook_id INT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_outbox_delivery ON outbox_deliveries(id, webhook_id);
+CREATE INDEX idx_outbox_delivery_lookup 
+ON outbox_deliveries(webhook_id, id);

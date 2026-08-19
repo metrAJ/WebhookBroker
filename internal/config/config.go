@@ -100,7 +100,7 @@ func getEnvAsInt(key string, def int) (int, error) {
 
 	value, err := strconv.Atoi(strValue)
 	if err != nil {
-		return 0, fmt.Errorf("config/getEnvAsInt invalid integer value for %s: %w", key, err)
+		return 0, fmt.Errorf("config.getEnvAsInt: invalid integer value for %s: %w", key, err)
 	}
 
 	return value, nil
@@ -114,7 +114,7 @@ func getEnvAsUint16(key string, def uint16) (uint16, error) {
 
 	value, err := strconv.ParseUint(strValue, 10, 16)
 	if err != nil {
-		return 0, fmt.Errorf("config/getEnvAsUint16 invalid port value for %s: %w", key, err)
+		return 0, fmt.Errorf("config.getEnvAsUint16: invalid port value for %s: %w", key, err)
 	}
 
 	return uint16(value), nil
