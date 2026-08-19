@@ -15,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const agent = "WebhookBroker"
+
 type Repository interface {
 	ClaimNextTasks(ctx context.Context, limit, leaseSec int) ([]domain.DeliveryTask, error)
 	FetchNextTask(ctx context.Context) (*domain.DeliveryTask, error)
@@ -55,9 +57,9 @@ func (s *Service) processTask(ctx context.Context, task domain.DeliveryTask) {
 	repo := s.repoFn(tx)
 
 	if err != nil {
-		slog.Warn("Webhook delivery failed", slog.Int("webhook_id", task.WebhookID), slog.Int("attempt", task.CurrentRetry+1), slog.String("error", err.Error()))
+		slog.Warn("Webhook delivery failed", slog.Int("webhook_id", task.WebhookID), slog.Int("attempt", task.CurrentRetry), slog.String("error", err.Error()))
 
-		if task.CurrentRetry >= s.cf.MaxRetries {
+		if task.CurrentRetry > s.cf.MaxRetries {
 			if dbErr := repo.DisableWebhook(dbCtx, task.WebhookID); dbErr != nil {
 				slog.Error("Failed to disable webhook", slog.String("error", dbErr.Error()))
 				return
@@ -88,7 +90,7 @@ func (s *Service) sendHTTP(ctx context.Context, url string, payload []byte) erro
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("API-Agent", "WebhookBroker")
+	req.Header.Set("API-Agent", agent)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {

@@ -18,9 +18,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cf := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("Failed to load configuration", "error", err)
+		os.Exit(1)
+	}
 
-	dbPool, err := db.InitDB(ctx, cf.DB)
+	dbPool, err := db.InitDB(ctx, cfg.DB)
 	if err != nil {
 		slog.Error("Database initialization failed", "error", err)
 		os.Exit(1)
@@ -31,7 +35,7 @@ func main() {
 		return repo.NewPostgresRepo(tx)
 	}
 
-	dispatchService := dispatch.NewService(cf.Dispatcher, dbPool, repoFactory)
+	dispatchService := dispatch.NewService(cfg.Dispatcher, dbPool, repoFactory)
 
 	manager := dispatch.NewManager(dispatchService)
 	manager.Start(ctx)

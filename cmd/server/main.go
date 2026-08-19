@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -25,9 +26,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cf := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("Failed to load configuration", "error", err)
+		os.Exit(1)
+	}
 
-	dbPool, err := db.InitDB(ctx, cf.DB)
+	dbPool, err := db.InitDB(ctx, cfg.DB)
 	if err != nil {
 		slog.Error("Database initialization failed", "error", err)
 		os.Exit(1)
@@ -45,12 +50,12 @@ func main() {
 	mux.HandleFunc("POST /events", handler.ReceiveEvent)
 
 	srv := &http.Server{
-		Addr:    ":" + cf.API.Port,
+		Addr:    fmt.Sprintf(":%d", cfg.API.Port),
 		Handler: mux,
 	}
 
 	go func() {
-		slog.Info("Starting API Server", slog.String("port", cf.API.Port))
+		slog.Info("Starting API Server", slog.Int("port", int(cfg.API.Port)))
 
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("HTTP server error", slog.String("error", err.Error()))
