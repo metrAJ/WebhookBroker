@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-
 	"webhookbroker/internal/domain"
 )
 
 type Manager struct {
 	service *Service
+	workers []chan domain.DeliveryTask
 }
 
 func NewManager(svc *Service) *Manager {
@@ -21,19 +21,25 @@ func NewManager(svc *Service) *Manager {
 
 func (m *Manager) Start(ctx context.Context) {
 	slog.Info("Starting dispatcher pool", slog.Int("workers", m.service.cf.WorkerCount))
+	m.workers = make([]chan domain.DeliveryTask, m.service.cf.WorkerCount)
 
-	taskChan := make(chan domain.DeliveryTask, m.service.cf.WorkerCount)
 	var wg sync.WaitGroup
 
 	for i := range m.service.cf.WorkerCount {
+		ch := make(chan domain.DeliveryTask, 10)
+		m.workers[i] = ch
+
 		wg.Go(func() {
-			m.workerInit(ctx, i, taskChan)
+			m.workerInit(ctx, i, ch)
 		})
 	}
 
-	m.pollingLoop(ctx, taskChan)
+	m.pollingLoop(ctx)
 
-	close(taskChan)
+	for _, ch := range m.workers {
+		close(ch)
+	}
+
 	wg.Wait()
 	slog.Info("All dispatcher workers shut down gracefully")
 }
@@ -46,7 +52,7 @@ func (m *Manager) workerInit(ctx context.Context, id int, taskChan <-chan domain
 	}
 }
 
-func (m *Manager) pollingLoop(ctx context.Context, taskChan chan<- domain.DeliveryTask) {
+func (m *Manager) pollingLoop(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -63,9 +69,9 @@ func (m *Manager) pollingLoop(ctx context.Context, taskChan chan<- domain.Delive
 			}
 
 			for _, task := range tasks {
-				taskChan <- task
+				workerIdx := task.WebhookID % m.service.cf.WorkerCount
+				m.workers[workerIdx] <- task
 			}
 		}
 	}
-
 }

@@ -115,7 +115,7 @@ func (r *PostgresRepo) FetchNextTask(ctx context.Context) (*domain.DeliveryTask,
 // 1. Finds active, unlocked webhooks and locks them (SKIP LOCKED).
 // 2. Updates locked_until for the claimed webhooks.
 // 3. LATERAL JOIN to get the payload.
-func (r *PostgresRepo) ClaimNextTasks(ctx context.Context, limit int, leaseSec int) ([]domain.DeliveryTask, error) {
+func (r *PostgresRepo) ClaimNextTasks(ctx context.Context, limit, leaseSec int) ([]domain.DeliveryTask, error) {
 	query := `
 		WITH claim_batch AS (
 			SELECT w.id 
