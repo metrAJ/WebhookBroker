@@ -1,0 +1,39 @@
+.PHONY: help init server broker test rm-db rm-test default golint
+
+default: help
+
+help:
+	@echo "usage: make [target]"
+	@echo "targets:"
+	@echo "	init    		Start DB Container"
+	@echo "	server			Start server"
+	@echo "	broker			Start broker"
+	@echo "	test			Start Tests on separate container and DB. Results will be shown in console, can take 10-15 sec to start."
+	@echo "	rm-db			Remove DB container and mounts"
+	@echo "	rm-test			Remove test and test-db containers"
+	@echo "	golint			Run golangci-lint check"
+	@echo "	precomm			Run precommit check"
+
+server:
+	go run ./cmd/server/
+
+broker:
+	go run ./cmd/dispatcher/
+
+init:
+	docker-compose up -d
+
+test: 
+	docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from integration-tests
+
+rm-db:
+	docker-compose down -v
+
+rm-test:
+	docker compose -f docker-compose.test.yml down -v
+
+golint: 
+	golangci-lint run
+
+precomm:
+	pre-commit run --all-files
