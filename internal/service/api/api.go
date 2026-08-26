@@ -5,16 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"webhookbroker/internal/domain"
+	"webhookbroker/domain"
 
 	"github.com/google/uuid"
-
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Repository interface {
-	CreateWebhook(ctx context.Context, hookURL string) (*domain.Webhook, error)
+	CreateWebhook(ctx context.Context, hookURL string, filterConfig domain.FilterConfig) (*domain.Webhook, error)
 	IngestEvent(ctx context.Context, eventID, issuer string, payloadJSON []byte) error
 }
 
@@ -30,8 +29,21 @@ func NewService(db *pgxpool.Pool, repoFn func(tx pgx.Tx) Repository) *Service {
 	}
 }
 
-func (s *Service) RegisterWebhook(ctx context.Context, hookURL string) (*domain.Webhook, error) {
-	hook := webhook{HookURL: hookURL}
+// Map domain DTO to DB model
+func mapToDBConfig(params domain.FilterParams) domain.FilterConfig {
+	return domain.FilterConfig{
+		Divisor: params.DivisibleBy,
+		Issuer:  params.Issuer,
+	}
+}
+
+func (s *Service) RegisterWebhook(ctx context.Context, hookURL string, params domain.FilterParams) (*domain.Webhook, error) {
+	dbFilters := mapToDBConfig(params)
+	hook := webhook{
+		HookURL: hookURL,
+		Filters: dbFilters,
+	}
+
 	if err := hook.Validate(); err != nil {
 		return nil, err
 	}
@@ -44,7 +56,7 @@ func (s *Service) RegisterWebhook(ctx context.Context, hookURL string) (*domain.
 
 	repo := s.repoFn(tx)
 
-	webhook, err := repo.CreateWebhook(ctx, hook.HookURL)
+	webhook, err := repo.CreateWebhook(ctx, hook.HookURL, hook.Filters)
 	if err != nil {
 		return nil, err
 	}
@@ -77,12 +89,17 @@ func (s *Service) ReceiveEvent(ctx context.Context, eventID, issuer string, payl
 
 type webhook struct {
 	HookURL string
+	Filters domain.FilterConfig
 }
 
 func (c webhook) Validate() error {
 	u, err := url.ParseRequestURI(c.HookURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return fmt.Errorf("api.go webhook.Validate() invalid webhook URL: %s", c.HookURL)
+		return fmt.Errorf("api.go webhook.Validate(): invalid webhook URL: %s", c.HookURL)
+	}
+
+	if c.Filters.Divisor != nil && *c.Filters.Divisor == 0 {
+		return fmt.Errorf("api.go webhook.Validate(): invalid filter (divisibleByN cannot be zero)")
 	}
 
 	return nil

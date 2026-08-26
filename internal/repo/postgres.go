@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
-	"webhookbroker/internal/domain"
+	"webhookbroker/domain"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -18,18 +18,19 @@ func NewPostgresRepo(tx pgx.Tx) *PostgresRepo {
 	return &PostgresRepo{tx: tx}
 }
 
-func (r *PostgresRepo) CreateWebhook(ctx context.Context, hookURL string) (*domain.Webhook, error) {
+func (r *PostgresRepo) CreateWebhook(ctx context.Context, hookURL string, filterConfig domain.FilterConfig) (*domain.Webhook, error) {
 	query := ` 
-	INSERT INTO webhooks (hook_url, is_active, last_processed_outbox_id, current_retry)
-	VALUES ($1, true, 0, 0)
-	RETURNING id, hook_url, is_active, last_processed_outbox_id, current_retry, created_at
+	INSERT INTO webhooks (hook_url, is_active, filters, last_processed_outbox_id, current_retry)
+	VALUES ($1, true, $2, 0, 0)
+	RETURNING id, hook_url, is_active, filters, last_processed_outbox_id, current_retry, created_at
 	`
 	webhook := &domain.Webhook{}
 
-	err := r.tx.QueryRow(ctx, query, hookURL).Scan(
+	err := r.tx.QueryRow(ctx, query, hookURL, filterConfig).Scan(
 		&webhook.ID,
 		&webhook.HookURL,
 		&webhook.IsActive,
+		&webhook.Filters,
 		&webhook.LastProcessedOutboxID,
 		&webhook.CurrentRetry,
 		&webhook.CreatedAt,
@@ -42,7 +43,6 @@ func (r *PostgresRepo) CreateWebhook(ctx context.Context, hookURL string) (*doma
 }
 
 func (r *PostgresRepo) IngestEvent(ctx context.Context, eventID, issuer string, payloadJSON []byte) error {
-	// Save the event and get autoincremented index
 	var eventIndex int64
 
 	err := r.tx.QueryRow(ctx, `
@@ -54,18 +54,92 @@ func (r *PostgresRepo) IngestEvent(ctx context.Context, eventID, issuer string, 
 		return fmt.Errorf("failed to insert event: %w", err)
 	}
 
-	// Bulk insert into outbox_deliveries for all active webhooks
-	_, err = r.tx.Exec(ctx, `
-		INSERT INTO outbox_deliveries (event_index, webhook_id)
-		SELECT $1, id 
+	return nil
+}
+
+func (r *PostgresRepo) GetActiveWebhooks(ctx context.Context) ([]domain.Webhook, error) {
+	query := `
+		SELECT id, hook_url, is_active, filters, created_at 
 		FROM webhooks 
 		WHERE is_active = true
-	`, eventIndex)
+	`
+
+	rows, err := r.tx.Query(ctx, query)
 	if err != nil {
-		return fmt.Errorf("failed to populate outbox deliveries: %w", err)
+		return nil, fmt.Errorf("failed to get active webhooks: %w", err)
+	}
+	defer rows.Close()
+
+	var webhooks []domain.Webhook
+	for rows.Next() {
+		var w domain.Webhook
+		if err := rows.Scan(&w.ID, &w.HookURL, &w.IsActive, &w.Filters, &w.CreatedAt); err != nil {
+			return nil, err
+		}
+		webhooks = append(webhooks, w)
+	}
+
+	return webhooks, rows.Err()
+}
+
+func (r *PostgresRepo) DispatchToOutbox(ctx context.Context, matches []domain.OutboxDelivery, highestIndex int64) error {
+	if len(matches) > 0 {
+		var eventIndexes []int64
+		var webhookIDs []int
+		for _, m := range matches {
+			eventIndexes = append(eventIndexes, m.EventIndex)
+			webhookIDs = append(webhookIDs, m.WebhookID)
+		}
+
+		_, err := r.tx.Exec(ctx, `
+			INSERT INTO outbox_deliveries (event_index, webhook_id)
+			SELECT unnest($1::bigint[]), unnest($2::int[])
+		`, eventIndexes, webhookIDs)
+
+		if err != nil {
+			return fmt.Errorf("failed to bulk insert outbox: %w", err)
+		}
+	}
+
+	// Update Cursors even if no matches to avoid looping
+	_, err := r.tx.Exec(ctx, `
+		UPDATE worker_cursors 
+		SET last_processed_index = $1 
+		WHERE id = 'main_dispatcher'
+	`, highestIndex)
+
+	if err != nil {
+		return fmt.Errorf("failed to update cursor: %w", err)
 	}
 
 	return nil
+}
+
+func (r *PostgresRepo) FetchUnprocessedEvents(ctx context.Context, limit int) ([]domain.Event, error) {
+	query := `
+		SELECT index, event_id, issuer, data, created_at 
+		FROM events 
+		WHERE index > (SELECT last_processed_index FROM worker_cursors WHERE id = 'main_dispatcher')
+		ORDER BY index ASC
+		LIMIT $1
+	`
+
+	rows, err := r.tx.Query(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch unprocessed events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []domain.Event
+	for rows.Next() {
+		var e domain.Event
+		if err := rows.Scan(&e.Index, &e.EventID, &e.Issuer, &e.Data, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+
+	return events, rows.Err()
 }
 
 // 1. Look for active webhook, where next_retry_time is NULL or <= current time

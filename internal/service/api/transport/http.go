@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"webhookbroker/internal/domain"
+	"webhookbroker/domain"
 )
 
 type Service interface {
 	ReceiveEvent(ctx context.Context, eventID, issuer string, payload []byte) error
-	RegisterWebhook(ctx context.Context, hookURL string) (*domain.Webhook, error)
+	RegisterWebhook(ctx context.Context, hookURL string, filters domain.FilterParams) (*domain.Webhook, error)
 }
 
 type HTTPHandler struct {
@@ -22,7 +22,8 @@ func NewHTTPHandler(s Service) *HTTPHandler {
 }
 
 type webhookRequest struct {
-	HookURL string `json:"hook_url"`
+	HookURL string              `json:"hook_url"`
+	Filters domain.FilterParams `json:"filters,omitempty"`
 }
 
 type eventRequest struct {
@@ -48,7 +49,7 @@ func (h *HTTPHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webhook, err := h.service.RegisterWebhook(r.Context(), req.HookURL)
+	webhook, err := h.service.RegisterWebhook(r.Context(), req.HookURL, req.Filters)
 	if err != nil {
 		slog.Error("Failed to register webhook", "error", err)
 		http.Error(w, "Failed to register webhook", http.StatusInternalServerError)
