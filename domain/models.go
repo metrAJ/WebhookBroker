@@ -43,11 +43,13 @@ type DeliveryTask struct {
 type FilterParams struct {
 	DivisibleBy *int    `json:"divisibleByN,omitempty"`
 	Issuer      *string `json:"expectedIssuer,omitempty"`
+	StartsWith  *string `json:"dataStartsWith,omitempty"`
 }
 
 type FilterConfig struct {
-	Divisor *int    `json:"div_n,omitempty"`
-	Issuer  *string `json:"iss_match,omitempty"`
+	Divisor    *int    `json:"div_n,omitempty"`
+	Issuer     *string `json:"iss_match,omitempty"`
+	StartsWith *string `json:"starts_with,omitempty"`
 }
 
 func (c FilterConfig) Value() (driver.Value, error) {
@@ -61,6 +63,7 @@ func (c *FilterConfig) Scan(value interface{}) error {
 	}
 
 	var b []byte
+
 	switch v := value.(type) {
 	case []byte:
 		b = v

@@ -71,11 +71,13 @@ func (r *PostgresRepo) GetActiveWebhooks(ctx context.Context) ([]domain.Webhook,
 	defer rows.Close()
 
 	var webhooks []domain.Webhook
+
 	for rows.Next() {
 		var w domain.Webhook
 		if err := rows.Scan(&w.ID, &w.HookURL, &w.IsActive, &w.Filters, &w.CreatedAt); err != nil {
 			return nil, err
 		}
+
 		webhooks = append(webhooks, w)
 	}
 
@@ -84,8 +86,11 @@ func (r *PostgresRepo) GetActiveWebhooks(ctx context.Context) ([]domain.Webhook,
 
 func (r *PostgresRepo) DispatchToOutbox(ctx context.Context, matches []domain.OutboxDelivery, highestIndex int64) error {
 	if len(matches) > 0 {
-		var eventIndexes []int64
-		var webhookIDs []int
+		var (
+			eventIndexes []int64
+			webhookIDs   []int
+		)
+
 		for _, m := range matches {
 			eventIndexes = append(eventIndexes, m.EventIndex)
 			webhookIDs = append(webhookIDs, m.WebhookID)
@@ -95,7 +100,6 @@ func (r *PostgresRepo) DispatchToOutbox(ctx context.Context, matches []domain.Ou
 			INSERT INTO outbox_deliveries (event_index, webhook_id)
 			SELECT unnest($1::bigint[]), unnest($2::int[])
 		`, eventIndexes, webhookIDs)
-
 		if err != nil {
 			return fmt.Errorf("failed to bulk insert outbox: %w", err)
 		}
@@ -107,7 +111,6 @@ func (r *PostgresRepo) DispatchToOutbox(ctx context.Context, matches []domain.Ou
 		SET last_processed_index = $1 
 		WHERE id = 'main_dispatcher'
 	`, highestIndex)
-
 	if err != nil {
 		return fmt.Errorf("failed to update cursor: %w", err)
 	}
@@ -131,11 +134,13 @@ func (r *PostgresRepo) FetchUnprocessedEvents(ctx context.Context, limit int) ([
 	defer rows.Close()
 
 	var events []domain.Event
+
 	for rows.Next() {
 		var e domain.Event
 		if err := rows.Scan(&e.Index, &e.EventID, &e.Issuer, &e.Data, &e.CreatedAt); err != nil {
 			return nil, err
 		}
+
 		events = append(events, e)
 	}
 

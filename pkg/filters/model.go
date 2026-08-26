@@ -16,6 +16,7 @@ func (chain FilterChain) MatchesAll(event domain.Event) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -32,6 +33,10 @@ func BuildChain(config domain.FilterConfig) FilterChain {
 		chain = append(chain, &IssuerFilter{
 			Expected: *config.Issuer,
 		})
+	}
+
+	if config.StartsWith != nil {
+		chain = append(chain, &StartsWithFilter{Prefix: *config.StartsWith})
 	}
 
 	return chain

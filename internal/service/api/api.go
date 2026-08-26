@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"regexp"
 	"webhookbroker/domain"
 
 	"github.com/google/uuid"
@@ -32,8 +33,9 @@ func NewService(db *pgxpool.Pool, repoFn func(tx pgx.Tx) Repository) *Service {
 // Map domain DTO to DB model
 func mapToDBConfig(params domain.FilterParams) domain.FilterConfig {
 	return domain.FilterConfig{
-		Divisor: params.DivisibleBy,
-		Issuer:  params.Issuer,
+		Divisor:    params.DivisibleBy,
+		Issuer:     params.Issuer,
+		StartsWith: params.StartsWith,
 	}
 }
 
@@ -100,6 +102,13 @@ func (c webhook) Validate() error {
 
 	if c.Filters.Divisor != nil && *c.Filters.Divisor == 0 {
 		return fmt.Errorf("api.go webhook.Validate(): invalid filter (divisibleByN cannot be zero)")
+	}
+
+	if c.Filters.StartsWith != nil {
+		match, _ := regexp.MatchString(`^[a-zA-Z0-9]+$`, *c.Filters.StartsWith)
+		if !match {
+			return fmt.Errorf("api.go webhook.Validate(): dataStartsWith must contain only alphanumeric characters")
+		}
 	}
 
 	return nil

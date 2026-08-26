@@ -2,6 +2,7 @@ package filter
 
 import (
 	"context"
+	"log/slog"
 	"webhookbroker/domain"
 	"webhookbroker/pkg/filters"
 
@@ -39,32 +40,57 @@ func (s *Service) ProcessBatch(ctx context.Context, batchSize int) (int, error) 
 
 	repo := s.repoFn(tx)
 
-	events, err := repo.FetchUnprocessedEvents(ctx, batchSize)
+	events, webhooks, err := s.fetchData(ctx, repo, batchSize)
 	if err != nil || len(events) == 0 {
 		return 0, err
 	}
 
-	webhooks, err := repo.GetActiveWebhooks(ctx)
-	if err != nil {
+	slog.Info("Fetched events", slog.Int("amount", len(events)))
+
+	compiledHooks := s.compileWebhooks(webhooks)
+	matches, highestIndex := s.evaluateEvents(events, compiledHooks)
+
+	if err := repo.DispatchToOutbox(ctx, matches, highestIndex); err != nil {
 		return 0, err
 	}
 
-	compiledHooks := make([]compiledWebhook, 0, len(webhooks))
+	return len(events), tx.Commit(ctx)
+}
+
+func (s *Service) fetchData(ctx context.Context, repo Repository, limit int) ([]domain.Event, []domain.Webhook, error) {
+	events, err := repo.FetchUnprocessedEvents(ctx, limit)
+	if err != nil || len(events) == 0 {
+		return nil, nil, err
+	}
+
+	webhooks, err := repo.GetActiveWebhooks(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return events, webhooks, nil
+}
+
+func (s *Service) compileWebhooks(webhooks []domain.Webhook) []compiledWebhook {
+	compiled := make([]compiledWebhook, 0, len(webhooks))
 	for _, w := range webhooks {
-		compiledHooks = append(compiledHooks, compiledWebhook{
+		compiled = append(compiled, compiledWebhook{
 			hook:  w,
 			chain: filters.BuildChain(w.Filters),
 		})
 	}
 
+	return compiled
+}
+
+func (s *Service) evaluateEvents(events []domain.Event, hooks []compiledWebhook) ([]domain.OutboxDelivery, int64) {
 	matches := make([]domain.OutboxDelivery, 0, len(events))
+
 	var highestIndex int64
 
 	for _, event := range events {
 		highestIndex = event.Index
-
-		for _, compiled := range compiledHooks {
-			// Prevent sending old events to new hooks
+		for _, compiled := range hooks {
 			if event.CreatedAt.Before(compiled.hook.CreatedAt) {
 				continue
 			}
@@ -78,9 +104,5 @@ func (s *Service) ProcessBatch(ctx context.Context, batchSize int) (int, error) 
 		}
 	}
 
-	if err := repo.DispatchToOutbox(ctx, matches, highestIndex); err != nil {
-		return 0, err
-	}
-
-	return len(events), tx.Commit(ctx)
+	return matches, highestIndex
 }
