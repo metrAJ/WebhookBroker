@@ -40,12 +40,6 @@ type DeliveryTask struct {
 	CurrentRetry     int
 }
 
-type FilterParams struct {
-	DivisibleBy *int    `json:"divisibleByN,omitempty"`
-	Issuer      *string `json:"expectedIssuer,omitempty"`
-	StartsWith  *string `json:"dataStartsWith,omitempty"`
-}
-
 type FilterConfig struct {
 	Divisor    *int    `json:"div_n,omitempty"`
 	Issuer     *string `json:"iss_match,omitempty"`

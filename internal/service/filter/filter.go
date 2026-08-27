@@ -11,9 +11,9 @@ import (
 )
 
 type Repository interface {
-	FetchUnprocessedEvents(ctx context.Context, limit int) ([]domain.Event, error)
+	FetchUnprocessedEvents(ctx context.Context, limit int, workerID string) ([]domain.Event, error)
 	GetActiveWebhooks(ctx context.Context) ([]domain.Webhook, error)
-	DispatchToOutbox(ctx context.Context, matches []domain.OutboxDelivery, highestIndex int64) error
+	DispatchToOutbox(ctx context.Context, matches []domain.OutboxDelivery, highestIndex int64, workerID string) error
 }
 
 type Service struct {
@@ -31,7 +31,7 @@ type compiledWebhook struct {
 	chain filters.FilterChain
 }
 
-func (s *Service) ProcessBatch(ctx context.Context, batchSize int) (int, error) {
+func (s *Service) ProcessBatch(ctx context.Context, batchSize int, workerID string) (int, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return 0, err
@@ -40,7 +40,7 @@ func (s *Service) ProcessBatch(ctx context.Context, batchSize int) (int, error) 
 
 	repo := s.repoFn(tx)
 
-	events, webhooks, err := s.fetchData(ctx, repo, batchSize)
+	events, webhooks, err := s.fetchData(ctx, repo, batchSize, workerID)
 	if err != nil || len(events) == 0 {
 		return 0, err
 	}
@@ -50,15 +50,15 @@ func (s *Service) ProcessBatch(ctx context.Context, batchSize int) (int, error) 
 	compiledHooks := s.compileWebhooks(webhooks)
 	matches, highestIndex := s.evaluateEvents(events, compiledHooks)
 
-	if err := repo.DispatchToOutbox(ctx, matches, highestIndex); err != nil {
+	if err := repo.DispatchToOutbox(ctx, matches, highestIndex, workerID); err != nil {
 		return 0, err
 	}
 
 	return len(events), tx.Commit(ctx)
 }
 
-func (s *Service) fetchData(ctx context.Context, repo Repository, limit int) ([]domain.Event, []domain.Webhook, error) {
-	events, err := repo.FetchUnprocessedEvents(ctx, limit)
+func (s *Service) fetchData(ctx context.Context, repo Repository, limit int, workerID string) ([]domain.Event, []domain.Webhook, error) {
+	events, err := repo.FetchUnprocessedEvents(ctx, limit, workerID)
 	if err != nil || len(events) == 0 {
 		return nil, nil, err
 	}
@@ -74,9 +74,22 @@ func (s *Service) fetchData(ctx context.Context, repo Repository, limit int) ([]
 func (s *Service) compileWebhooks(webhooks []domain.Webhook) []compiledWebhook {
 	compiled := make([]compiledWebhook, 0, len(webhooks))
 	for _, w := range webhooks {
+		// Construct the slice of interfaces based on the domain config
+		var hookFilters []filters.EventFilter
+
+		if w.Filters.Divisor != nil {
+			hookFilters = append(hookFilters, &filters.DivisibleFilter{Divisor: *w.Filters.Divisor})
+		}
+		if w.Filters.Issuer != nil {
+			hookFilters = append(hookFilters, &filters.IssuerFilter{Expected: *w.Filters.Issuer})
+		}
+		if w.Filters.StartsWith != nil {
+			hookFilters = append(hookFilters, &filters.StartsWithFilter{Prefix: *w.Filters.StartsWith})
+		}
+
 		compiled = append(compiled, compiledWebhook{
 			hook:  w,
-			chain: filters.BuildChain(w.Filters),
+			chain: filters.BuildChain(hookFilters...),
 		})
 	}
 

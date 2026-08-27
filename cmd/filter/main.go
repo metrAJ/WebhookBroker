@@ -51,6 +51,6 @@ func main() {
 		cancel()
 	}()
 
-	worker := filter.NewWorker(svc, filterIntervalSec*time.Second)
+	worker := filter.NewWorker(svc, filterIntervalSec*time.Second, "main_dispatcher")
 	worker.Start(ctx, batchSzie)
 }

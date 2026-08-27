@@ -20,24 +20,6 @@ func (chain FilterChain) MatchesAll(event domain.Event) bool {
 	return true
 }
 
-func BuildChain(config domain.FilterConfig) FilterChain {
-	var chain FilterChain
-
-	if config.Divisor != nil {
-		chain = append(chain, &DivisibleFilter{
-			Divisor: *config.Divisor,
-		})
-	}
-
-	if config.Issuer != nil {
-		chain = append(chain, &IssuerFilter{
-			Expected: *config.Issuer,
-		})
-	}
-
-	if config.StartsWith != nil {
-		chain = append(chain, &StartsWithFilter{Prefix: *config.StartsWith})
-	}
-
-	return chain
+func BuildChain(filters ...EventFilter) FilterChain {
+	return filters
 }

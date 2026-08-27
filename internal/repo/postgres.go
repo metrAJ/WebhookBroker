@@ -84,7 +84,7 @@ func (r *PostgresRepo) GetActiveWebhooks(ctx context.Context) ([]domain.Webhook,
 	return webhooks, rows.Err()
 }
 
-func (r *PostgresRepo) DispatchToOutbox(ctx context.Context, matches []domain.OutboxDelivery, highestIndex int64) error {
+func (r *PostgresRepo) DispatchToOutbox(ctx context.Context, matches []domain.OutboxDelivery, highestIndex int64, workerID string) error {
 	if len(matches) > 0 {
 		var (
 			eventIndexes []int64
@@ -109,8 +109,8 @@ func (r *PostgresRepo) DispatchToOutbox(ctx context.Context, matches []domain.Ou
 	_, err := r.tx.Exec(ctx, `
 		UPDATE worker_cursors 
 		SET last_processed_index = $1 
-		WHERE id = 'main_dispatcher'
-	`, highestIndex)
+		WHERE id = $2
+	`, highestIndex, workerID)
 	if err != nil {
 		return fmt.Errorf("failed to update cursor: %w", err)
 	}
@@ -118,16 +118,16 @@ func (r *PostgresRepo) DispatchToOutbox(ctx context.Context, matches []domain.Ou
 	return nil
 }
 
-func (r *PostgresRepo) FetchUnprocessedEvents(ctx context.Context, limit int) ([]domain.Event, error) {
+func (r *PostgresRepo) FetchUnprocessedEvents(ctx context.Context, limit int, workerID string) ([]domain.Event, error) {
 	query := `
 		SELECT index, event_id, issuer, data, created_at 
 		FROM events 
-		WHERE index > (SELECT last_processed_index FROM worker_cursors WHERE id = 'main_dispatcher')
+		WHERE index > (SELECT last_processed_index FROM worker_cursors WHERE id = $2)
 		ORDER BY index ASC
 		LIMIT $1
 	`
 
-	rows, err := r.tx.Query(ctx, query, limit)
+	rows, err := r.tx.Query(ctx, query, limit, workerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch unprocessed events: %w", err)
 	}

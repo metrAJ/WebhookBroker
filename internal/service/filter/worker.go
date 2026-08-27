@@ -9,12 +9,14 @@ import (
 type Worker struct {
 	svc      *Service
 	interval time.Duration
+	workerID string
 }
 
-func NewWorker(svc *Service, interval time.Duration) *Worker {
+func NewWorker(svc *Service, interval time.Duration, workerID string) *Worker {
 	return &Worker{
 		svc:      svc,
 		interval: interval,
+		workerID: workerID,
 	}
 }
 
@@ -30,7 +32,7 @@ func (w *Worker) Start(ctx context.Context, batchSize int) {
 			slog.Info("Worker stopped gracefully.")
 			return
 		case <-ticker.C:
-			w.svc.ProcessBatch(ctx, batchSize)
+			w.svc.ProcessBatch(ctx, batchSize, w.workerID)
 		}
 	}
 }
