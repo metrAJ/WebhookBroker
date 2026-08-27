@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-	"webhookbroker/internal/domain"
+	"webhookbroker/domain"
 )
 
 type Manager struct {

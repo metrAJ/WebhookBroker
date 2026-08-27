@@ -8,8 +8,8 @@ import (
 	"math"
 	"net/http"
 	"time"
+	"webhookbroker/domain"
 	"webhookbroker/internal/config"
-	"webhookbroker/internal/domain"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

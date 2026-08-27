@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"webhookbroker/internal/domain"
+	"webhookbroker/domain"
 )
 
 type Service interface {
 	ReceiveEvent(ctx context.Context, eventID, issuer string, payload []byte) error
-	RegisterWebhook(ctx context.Context, hookURL string) (*domain.Webhook, error)
+	RegisterWebhook(ctx context.Context, hookURL string, filters domain.FilterConfig) (*domain.Webhook, error)
 }
 
 type HTTPHandler struct {
@@ -21,8 +21,15 @@ func NewHTTPHandler(s Service) *HTTPHandler {
 	return &HTTPHandler{service: s}
 }
 
+type filterParams struct {
+	DivisibleBy *int    `json:"divisibleByN,omitempty"`
+	Issuer      *string `json:"expectedIssuer,omitempty"`
+	StartsWith  *string `json:"dataStartsWith,omitempty"`
+}
+
 type webhookRequest struct {
-	HookURL string `json:"hook_url"`
+	HookURL string       `json:"hook_url"`
+	Filters filterParams `json:"filters,omitempty"`
 }
 
 type eventRequest struct {
@@ -48,7 +55,13 @@ func (h *HTTPHandler) RegisterWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webhook, err := h.service.RegisterWebhook(r.Context(), req.HookURL)
+	domainConfig := domain.FilterConfig{
+		Divisor:    req.Filters.DivisibleBy,
+		Issuer:     req.Filters.Issuer,
+		StartsWith: req.Filters.StartsWith,
+	}
+
+	webhook, err := h.service.RegisterWebhook(r.Context(), req.HookURL, domainConfig)
 	if err != nil {
 		slog.Error("Failed to register webhook", "error", err)
 		http.Error(w, "Failed to register webhook", http.StatusInternalServerError)

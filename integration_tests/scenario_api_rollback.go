@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
-	"webhookbroker/internal/domain"
+	"webhookbroker/domain"
 	"webhookbroker/internal/repo"
 	"webhookbroker/internal/service/api"
 
@@ -17,8 +17,8 @@ type faultInjectingRepo struct {
 	realRepo api.Repository
 }
 
-func (f *faultInjectingRepo) CreateWebhook(ctx context.Context, hookURL string) (*domain.Webhook, error) {
-	return f.realRepo.CreateWebhook(ctx, hookURL)
+func (f *faultInjectingRepo) CreateWebhook(ctx context.Context, hookURL string, cfg domain.FilterConfig) (*domain.Webhook, error) {
+	return f.realRepo.CreateWebhook(ctx, hookURL, domain.FilterConfig{})
 }
 
 func (f *faultInjectingRepo) IngestEvent(ctx context.Context, eventID, issuer string, payload []byte) error {
