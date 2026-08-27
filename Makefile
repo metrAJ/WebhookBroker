@@ -13,6 +13,8 @@ help:
 	@echo "	rm-test			Remove test and test-db containers"
 	@echo "	golint			Run golangci-lint check"
 	@echo "	precomm			Run precommit check"
+	@echo "	e2e				Run e2e test with real service and all components on separate DB. Can take some time to build all services"
+	@echo "	rm-e2e			Remove e2e containers and mounts"
 
 server:
 	go run ./cmd/server/
@@ -37,3 +39,9 @@ golint:
 
 precomm:
 	pre-commit run --all-files
+
+e2e:
+	docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
+
+rm-e2e:
+	docker compose -f docker-compose.e2e.yml down -v
