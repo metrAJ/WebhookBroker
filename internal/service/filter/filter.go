@@ -80,9 +80,11 @@ func (s *Service) compileWebhooks(webhooks []domain.Webhook) []compiledWebhook {
 		if w.Filters.Divisor != nil {
 			hookFilters = append(hookFilters, &filters.DivisibleFilter{Divisor: *w.Filters.Divisor})
 		}
+
 		if w.Filters.Issuer != nil {
 			hookFilters = append(hookFilters, &filters.IssuerFilter{Expected: *w.Filters.Issuer})
 		}
+
 		if w.Filters.StartsWith != nil {
 			hookFilters = append(hookFilters, &filters.StartsWithFilter{Prefix: *w.Filters.StartsWith})
 		}

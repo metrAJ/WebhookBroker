@@ -1,0 +1,62 @@
+services:
+  db-e2e:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: e2e_user
+      POSTGRES_PASSWORD: e2e_password
+      POSTGRES_DB: e2e_db
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e2e_user -d e2e_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  api-server:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: server
+    environment:
+      DB_URL: postgres://e2e_user:e2e_password@db-e2e:5432/e2e_db?sslmode=disable
+    depends_on:
+      db-e2e:
+        condition: service_healthy
+
+  dispatcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: dispatcher
+    environment:
+      DISPATCH_LEASE_SEC: 2
+      DB_URL: postgres://e2e_user:e2e_password@db-e2e:5432/e2e_db?sslmode=disable
+    depends_on:
+      db-e2e:
+        condition: service_healthy
+
+  filter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: filter
+    environment:
+      DB_URL: postgres://e2e_user:e2e_password@db-e2e:5432/e2e_db?sslmode=disable
+    depends_on:
+      db-e2e:
+        condition: service_healthy
+  e2e-tester:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: e2e
+    environment:
+      API_URL: http://api-server:8080
+    depends_on:
+      db-e2e:
+        condition: service_healthy
