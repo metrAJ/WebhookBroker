@@ -49,18 +49,38 @@ make server
 ```bash
 make broker
 ```
+4. Start the filter
 
-4. Remove DB and clean mounts:
+```bash
+make filer
+```
+5. Remove DB and clean mounts:
 
 ```bash
 make rm-db
 ```
 
-5. Other useful commands:
+6. Other useful commands:
 
 ```bash
 make help
 ```
+
+## Filtering
+
+The project includes a separate service to filter events according to the webhooks `filters` parameter. All currently available filters with a POST body example: 
+
+```JSON
+{
+  "hook_url": "https://api.example.com/test",
+  "filters": {
+    "divisibleByN": 2,
+    "dataStartsWith": "A"
+    "expectedIssuer": "testo"
+  }
+}
+```
+Filters are not necessary for mandatory functionality. You can drop any of the filters, щк the whole `filters` block itself, so that the webhook will receive all incoming events. 
 
 ## Environment
 
