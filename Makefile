@@ -8,6 +8,7 @@ help:
 	@echo "	init    		Start DB Container"
 	@echo "	server			Start server"
 	@echo "	broker			Start broker"
+	@echo "	filter			Start filter"
 	@echo "	test			Start Tests on separate container and DB. Results will be shown in console, can take 10-15 sec to start."
 	@echo "	rm-db			Remove DB container and mounts"
 	@echo "	rm-test			Remove test and test-db containers"
@@ -21,6 +22,9 @@ server:
 
 broker:
 	go run ./cmd/dispatcher/
+
+filer:
+	go run ./cmd/filter/
 
 init:
 	docker-compose up -d
