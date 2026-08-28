@@ -41,7 +41,7 @@ precomm:
 	pre-commit run --all-files
 
 e2e:
-	docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
+	BUILDKIT_PARALLEL_LIMIT=4 docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
 
 rm-e2e:
 	docker compose -f docker-compose.e2e.yml down -v

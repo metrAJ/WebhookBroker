@@ -25,17 +25,28 @@ func main() {
 
 	start := time.Now()
 
-	var hookSleepy, hookCorrectOrder, hookUnresponsive *MockHook
+	var (
+		hookSleepy, hookCorrectOrder, hookUnresponsive *MockHook
+		err                                            error
+	)
 
-	hookCorrectOrder = NewMockHook("Order", nil)
+	hookCorrectOrder, err = NewMockHook("Order", nil)
+	if err != nil {
+		slog.Error("Failed to create hookCorrectOrder", "error", err)
+		os.Exit(1)
+	}
 	defer hookCorrectOrder.Close()
 
-	hookUnresponsive = NewMockHook("Fail", func(w http.ResponseWriter, _ *http.Request) {
+	hookUnresponsive, err = NewMockHook("Fail", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
+	if err != nil {
+		slog.Error("Failed to create hookUnresponsive", "error", err)
+		os.Exit(1)
+	}
 	defer hookUnresponsive.Close()
 
-	hookSleepy = NewMockHook("Sleepy", func(w http.ResponseWriter, r *http.Request) {
+	hookSleepy, err = NewMockHook("Sleepy", func(w http.ResponseWriter, r *http.Request) {
 		if time.Since(start) < 10*time.Second {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
@@ -53,18 +64,56 @@ func main() {
 
 		w.WriteHeader(http.StatusOK)
 	})
+	if err != nil {
+		slog.Error("Failed to create hookSleepy", "error", err)
+		os.Exit(1)
+	}
 	defer hookSleepy.Close()
 
-	registerWebhook(apiURL, hookCorrectOrder.URL, `{"dataStartsWith": "O"}`)
-	registerWebhook(apiURL, hookUnresponsive.URL, `{}`)
-	registerWebhook(apiURL, hookSleepy.URL, `{"dataStartsWith": "S"}`)
+	if err := registerWebhook(apiURL, hookCorrectOrder.URL, `{"dataStartsWith": "O"}`); err != nil {
+		slog.Error("Failed to register Webhook", "error", err)
+		os.Exit(1)
+	}
 
-	fireEvent(apiURL, "Super_Late")
-	fireEvent(apiURL, "Ok_1")
-	fireEvent(apiURL, "Bad_1")
-	fireEvent(apiURL, "Ok_2")
-	fireEvent(apiURL, "Bad_2")
-	fireEvent(apiURL, "Ok_3")
+	if err := registerWebhook(apiURL, hookUnresponsive.URL, `{}`); err != nil {
+		slog.Error("Failed to register Webhook", "error", err)
+		os.Exit(1)
+	}
+
+	if err := registerWebhook(apiURL, hookSleepy.URL, `{"dataStartsWith": "S"}`); err != nil {
+		slog.Error("Failed to register Webhook", "error", err)
+		os.Exit(1)
+	}
+
+	if err := fireEvent(apiURL, "Super_Late"); err != nil {
+		slog.Error("Failed to fire event", "error", err)
+		os.Exit(1)
+	}
+
+	if err := fireEvent(apiURL, "Ok_1"); err != nil {
+		slog.Error("Failed to fire event", "error", err)
+		os.Exit(1)
+	}
+
+	if err := fireEvent(apiURL, "Bad_1"); err != nil {
+		slog.Error("Failed to fire event", "error", err)
+		os.Exit(1)
+	}
+
+	if err := fireEvent(apiURL, "Ok_2"); err != nil {
+		slog.Error("Failed to fire event", "error", err)
+		os.Exit(1)
+	}
+
+	if err := fireEvent(apiURL, "Bad_2"); err != nil {
+		slog.Error("Failed to fire event", "error", err)
+		os.Exit(1)
+	}
+
+	if err := fireEvent(apiURL, "Ok_3"); err != nil {
+		slog.Error("Failed to fire event", "error", err)
+		os.Exit(1)
+	}
 
 	var (
 		okAmount   = 3
@@ -93,7 +142,6 @@ func main() {
 	}
 
 	slog.Info("E2E tests passed.")
-	os.Exit(0)
 }
 
 type MockHook struct {
@@ -103,7 +151,7 @@ type MockHook struct {
 	Events chan string
 }
 
-func NewMockHook(name string, customHandler http.HandlerFunc) *MockHook {
+func NewMockHook(name string, customHandler http.HandlerFunc) (*MockHook, error) {
 	hook := &MockHook{
 		Name:   name,
 		Events: make(chan string, 50),
@@ -131,8 +179,7 @@ func NewMockHook(name string, customHandler http.HandlerFunc) *MockHook {
 
 	l, err := net.Listen("tcp", "0.0.0.0:0")
 	if err != nil {
-		slog.Error("Failed to start mock server")
-		os.Exit(1)
+		return nil, err
 	}
 
 	hook.Server.Listener = l
@@ -140,13 +187,12 @@ func NewMockHook(name string, customHandler http.HandlerFunc) *MockHook {
 
 	_, port, err := net.SplitHostPort(l.Addr().String())
 	if err != nil {
-		slog.Error("Failed to get free port")
-		os.Exit(1)
+		return nil, err
 	}
 
 	hook.URL = fmt.Sprintf("http://e2e-tester:%s", port)
 
-	return hook
+	return hook, nil
 }
 
 func (mh *MockHook) Close() {
@@ -172,7 +218,7 @@ func (mh *MockHook) Validate(ctx context.Context, expectedEvents int, verifyFn f
 	return nil
 }
 
-func registerWebhook(apiURL, hookURL, filters string) {
+func registerWebhook(apiURL, hookURL, filters string) error {
 	body := fmt.Sprintf(`{"hook_url": "%s", "filters": %s}`, hookURL, filters)
 	if filters == "{}" {
 		body = fmt.Sprintf(`{"hook_url": "%s"}`, hookURL)
@@ -180,17 +226,19 @@ func registerWebhook(apiURL, hookURL, filters string) {
 
 	resp, err := http.Post(apiURL+"/webhooks", "application/json", bytes.NewBuffer([]byte(body)))
 	if err != nil || resp.StatusCode != http.StatusCreated {
-		slog.Error("Failed to register webhook", "url", hookURL)
-		os.Exit(1)
+		return fmt.Errorf("failed to register webhook: %s", hookURL)
 	}
+
+	return nil
 }
 
-func fireEvent(apiURL, data string) {
+func fireEvent(apiURL, data string) error {
 	body := fmt.Sprintf(`{"id": "550e8400-e29b-41d4-a716-446655440000", "issuer": "Aboba", "data": "%s"}`, data)
 
 	resp, err := http.Post(apiURL+"/events", "application/json", bytes.NewBuffer([]byte(body)))
 	if err != nil || resp.StatusCode != http.StatusAccepted {
-		slog.Error("Failed to fire event", "data", data)
-		os.Exit(1)
+		return fmt.Errorf("failed to fire event: %s", data)
 	}
+
+	return nil
 }

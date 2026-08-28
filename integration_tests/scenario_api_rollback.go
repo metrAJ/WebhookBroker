@@ -17,7 +17,7 @@ type faultInjectingRepo struct {
 	realRepo api.Repository
 }
 
-func (f *faultInjectingRepo) CreateWebhook(ctx context.Context, hookURL string, cfg domain.FilterConfig) (*domain.Webhook, error) {
+func (f *faultInjectingRepo) CreateWebhook(ctx context.Context, hookURL string, _ domain.FilterConfig) (*domain.Webhook, error) {
 	return f.realRepo.CreateWebhook(ctx, hookURL, domain.FilterConfig{})
 }
 
