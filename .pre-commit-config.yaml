@@ -1,0 +1,20 @@
+repos:
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: go fmt
+        entry: go fmt ./...
+        language: system
+        pass_filenames: false
+        
+      - id: go-mod-tidy
+        name: go mod tidy
+        entry: go mod tidy
+        language: system
+        pass_filenames: false
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.12.2 
+    hooks:
+      - id: golangci-lint
+        args: ["--timeout=5m"]
